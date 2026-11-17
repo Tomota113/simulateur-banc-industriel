@@ -1,0 +1,1462 @@
+<!DOCTYPE html>
+<html lang="fr" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Banc d'Essai Industriel 4.0 - Maintenance Prédictive TinyML</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Chakra+Petch:wght@400;500;600;700&family=JetBrains+Mono:wght@300;400;500;700&family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+
+  <script>
+    tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+            mono: ['JetBrains Mono', 'monospace'],
+            tech: ['Chakra Petch', 'sans-serif'],
+          },
+          colors: {
+            brand: {
+              50: '#ecfeff',
+              400: '#22d3ee',
+              500: '#06b6d4',
+              600: '#0891b2',
+            },
+            danger: {
+              500: '#ef4444',
+              600: '#dc2626',
+            },
+            warning: {
+              500: '#f59e0b',
+            },
+            healthy: {
+              500: '#10b981',
+              400: '#34d399',
+            }
+          }
+        }
+      }
+    }
+  </script>
+
+  <style>
+    /* Custom Scrollbars */
+    ::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+      background: #0f172a;
+    }
+    ::-webkit-scrollbar-thumb {
+      background: #334155;
+      border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+      background: #475569;
+    }
+
+    /* Glow Effects */
+    .glow-healthy {
+      box-shadow: 0 0 20px rgba(16, 185, 129, 0.45);
+    }
+    .glow-alarm {
+      box-shadow: 0 0 25px rgba(239, 68, 68, 0.65);
+      animation: pulse-glow 1s infinite alternate;
+    }
+    .glow-warning {
+      box-shadow: 0 0 20px rgba(245, 158, 11, 0.5);
+    }
+    @keyframes pulse-glow {
+      from { box-shadow: 0 0 10px rgba(239, 68, 68, 0.4); }
+      to { box-shadow: 0 0 30px rgba(239, 68, 68, 0.9); }
+    }
+
+    .gauge-bg {
+      background: radial-gradient(circle at center, #1e293b 0%, #0f172a 100%);
+    }
+  </style>
+</head>
+<body class="bg-slate-950 text-slate-100 font-sans min-h-screen flex flex-col selection:bg-cyan-500 selection:text-slate-950">
+
+  <!-- TOP HEADER & STATUS BAR -->
+  <header class="border-b border-slate-800 bg-slate-900/90 backdrop-blur sticky top-0 z-50">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-4">
+      <div class="flex items-center space-x-3">
+        <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-cyan-600 to-blue-500 flex items-center justify-center shadow-lg shadow-cyan-500/20">
+          <i class="fa-solid fa-fan text-white text-xl animate-spin" id="headerFanIcon" style="animation-duration: 4s;"></i>
+        </div>
+        <div>
+          <div class="flex items-center gap-2">
+            <h1 class="text-lg font-tech font-bold tracking-wider text-slate-100 uppercase">Turbine Edge-AI</h1>
+            <span class="text-xs bg-cyan-950 text-cyan-400 border border-cyan-700/50 px-2 py-0.5 rounded font-mono font-medium">v2.4 - Soutenance</span>
+          </div>
+          <p class="text-xs text-slate-400 font-medium">Banc d'Essai & Maintenance Prédictive Multi-Capteurs (ESP32 / TinyML)</p>
+        </div>
+      </div>
+
+      <!-- FSM Central Status Pill -->
+      <div id="fsmPill" class="flex items-center gap-3 px-4 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/40 text-emerald-400 font-tech text-sm tracking-wide glow-healthy transition-all duration-300">
+        <span class="relative flex h-3 w-3">
+          <span id="fsmPing" class="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
+          <span id="fsmDot" class="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+        </span>
+        <span id="fsmText" class="font-bold">SYSTÈME SAIN (STATE_NORMAL)</span>
+      </div>
+
+      <!-- Quick Audio & Global Controls -->
+      <div class="flex items-center gap-2">
+        <button id="audioToggleBtn" class="flex items-center gap-2 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 px-3 py-1.5 rounded-lg text-slate-300 transition" title="Activer/Couper la simulation acoustique turbine & buzzer">
+          <i class="fa-solid fa-volume-high text-cyan-400" id="audioIcon"></i>
+          <span id="audioBtnText">Audio : ON</span>
+        </button>
+        <button id="rearmQuickBtn" onclick="triggerRearm()" class="flex items-center gap-2 text-xs font-semibold bg-emerald-600 hover:bg-emerald-500 text-white px-3 py-1.5 rounded-lg shadow-md transition active:scale-95">
+          <i class="fa-solid fa-rotate-left"></i>
+          <span>RESET / Réarmer</span>
+        </button>
+        <button id="emergencyQuickBtn" onclick="triggerEmergencyStop()" class="flex items-center gap-2 text-xs font-bold bg-red-600 hover:bg-red-500 text-white px-3.5 py-1.5 rounded-lg shadow-lg shadow-red-600/30 transition active:scale-95">
+          <i class="fa-solid fa-hand"></i>
+          <span>ARRÊT D'URGENCE</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Navigation Tabs -->
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 flex space-x-1 border-t border-slate-800/80 pt-1 text-sm font-medium">
+      <button onclick="switchTab('tab-live')" id="btn-tab-live" class="tab-btn px-4 py-2 border-b-2 border-cyan-400 text-cyan-400 flex items-center gap-2 transition">
+        <i class="fa-solid fa-chart-line"></i>
+        <span>Cockpit & Télémétrie Temps Réel</span>
+      </button>
+      <button onclick="switchTab('tab-bench')" id="btn-tab-bench" class="tab-btn px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+        <i class="fa-solid fa-cube"></i>
+        <span>Maquette Physique & Capteurs</span>
+      </button>
+      <button onclick="switchTab('tab-wiring')" id="btn-tab-wiring" class="tab-btn px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+        <i class="fa-solid fa-microchip"></i>
+        <span>Schéma Électronique & Brochage</span>
+      </button>
+      <button onclick="switchTab('tab-serial')" id="btn-tab-serial" class="tab-btn px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+        <i class="fa-solid fa-terminal"></i>
+        <span>Moniteur Série Vidéoprojecteur</span>
+      </button>
+      <button onclick="switchTab('tab-pitch')" id="btn-tab-pitch" class="tab-btn px-4 py-2 border-b-2 border-transparent text-slate-400 hover:text-slate-200 flex items-center gap-2 transition">
+        <i class="fa-solid fa-graduation-cap"></i>
+        <span>Script & Arguments Jury</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- MAIN VIEW CONTAINER -->
+  <main class="flex-1 max-w-7xl w-full mx-auto p-4 sm:p-6 space-y-6">
+
+    <!-- ========================================================================================= -->
+    <!-- TAB 1: COCKPIT & LIVE TELEMETRY (MAIN DEMO) -->
+    <!-- ========================================================================================= -->
+    <section id="tab-live" class="tab-content space-y-6">
+
+      <!-- TOP METRICS GAUGES (6 Dimensions) -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 sm:gap-4">
+        
+        <!-- Metric 1: RPM (TCRT5000) -->
+        <div class="gauge-bg rounded-xl border border-slate-800 p-3 flex flex-col justify-between relative overflow-hidden group">
+          <div class="flex justify-between items-center text-slate-400 text-xs">
+            <span class="font-medium">VITESSE ROTATION</span>
+            <i class="fa-solid fa-gauge-high text-cyan-400"></i>
+          </div>
+          <div class="my-2">
+            <div class="text-2xl font-tech font-bold text-slate-100" id="gaugeRpmValue">2850</div>
+            <div class="text-[11px] text-cyan-400 font-mono">RPM (TCRT5000 Optique)</div>
+          </div>
+          <!-- Progress bar -->
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="gaugeRpmBar" class="bg-cyan-400 h-full w-[47%] transition-all duration-200"></div>
+          </div>
+        </div>
+
+        <!-- Metric 2: RMS Vibration (MPU6050) -->
+        <div class="gauge-bg rounded-xl border border-slate-800 p-3 flex flex-col justify-between relative overflow-hidden">
+          <div class="flex justify-between items-center text-slate-400 text-xs">
+            <span class="font-medium">VIBRATION RMS</span>
+            <i class="fa-solid fa-water text-emerald-400" id="gaugeRmsIcon"></i>
+          </div>
+          <div class="my-2">
+            <div class="text-2xl font-tech font-bold text-emerald-400" id="gaugeRmsValue">0.84 g</div>
+            <div class="text-[11px] text-slate-400 font-mono">Axe Z (MPU6050)</div>
+          </div>
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="gaugeRmsBar" class="bg-emerald-400 h-full w-[20%] transition-all duration-200"></div>
+          </div>
+        </div>
+
+        <!-- Metric 3: Fréquence Dominante FFT -->
+        <div class="gauge-bg rounded-xl border border-slate-800 p-3 flex flex-col justify-between relative overflow-hidden">
+          <div class="flex justify-between items-center text-slate-400 text-xs">
+            <span class="font-medium">PIC SPECTRAL FFT</span>
+            <i class="fa-solid fa-wave-square text-indigo-400"></i>
+          </div>
+          <div class="my-2">
+            <div class="text-2xl font-tech font-bold text-indigo-300" id="gaugeFreqValue">47.5 Hz</div>
+            <div class="text-[11px] text-slate-400 font-mono">Résolution : 3.125 Hz</div>
+          </div>
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="gaugeFreqBar" class="bg-indigo-400 h-full w-[47%] transition-all duration-200"></div>
+          </div>
+        </div>
+
+        <!-- Metric 4: Courant Moteur (INA219) -->
+        <div class="gauge-bg rounded-xl border border-slate-800 p-3 flex flex-col justify-between relative overflow-hidden">
+          <div class="flex justify-between items-center text-slate-400 text-xs">
+            <span class="font-medium">COURANT MOTEUR</span>
+            <i class="fa-solid fa-bolt text-amber-400"></i>
+          </div>
+          <div class="my-2">
+            <div class="text-2xl font-tech font-bold text-slate-100" id="gaugeCurrentValue">420 mA</div>
+            <div class="text-[11px] text-amber-400/90 font-mono" id="gaugeVoltValue">11.85 V • 4.98 W</div>
+          </div>
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="gaugeCurrentBar" class="bg-amber-400 h-full w-[21%] transition-all duration-200"></div>
+          </div>
+        </div>
+
+        <!-- Metric 5: Température IR (MLX90614) -->
+        <div class="gauge-bg rounded-xl border border-slate-800 p-3 flex flex-col justify-between relative overflow-hidden">
+          <div class="flex justify-between items-center text-slate-400 text-xs">
+            <span class="font-medium">TEMPÉRATURE IR</span>
+            <i class="fa-solid fa-temperature-half text-rose-400"></i>
+          </div>
+          <div class="my-2">
+            <div class="text-2xl font-tech font-bold text-slate-100" id="gaugeTempValue">31.4 °C</div>
+            <div class="text-[11px] text-slate-400 font-mono">Sans contact (MLX90614)</div>
+          </div>
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="gaugeTempBar" class="bg-rose-400 h-full w-[28%] transition-all duration-200"></div>
+          </div>
+        </div>
+
+        <!-- Metric 6: TinyML Inference Score -->
+        <div class="gauge-bg rounded-xl border border-slate-800 p-3 flex flex-col justify-between relative overflow-hidden">
+          <div class="flex justify-between items-center text-slate-400 text-xs">
+            <span class="font-medium">DIAGNOSTIC IA</span>
+            <i class="fa-solid fa-brain text-cyan-400"></i>
+          </div>
+          <div class="my-2">
+            <div class="text-xl font-tech font-bold text-emerald-400" id="gaugeMlVerdict">NORMAL</div>
+            <div class="text-[11px] text-slate-400 font-mono">Confiance: <span id="gaugeMlConf" class="text-slate-200">98.4%</span></div>
+          </div>
+          <div class="w-full bg-slate-800 h-1.5 rounded-full overflow-hidden">
+            <div id="gaugeMlBar" class="bg-emerald-500 h-full w-[98%] transition-all duration-200"></div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- MAIN DUAL GRAPHS (CANVAS OSCILLOSCOPE & FFT) -->
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        
+        <!-- Live Waveform Canvas (Time Domain Z-axis) -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-cyan-400 animate-pulse"></span>
+              <h3 class="font-tech font-semibold text-slate-200 text-sm tracking-wide">SIGNAL VIBRATOIRE TEMPOREL (Axe Z - 200 Hz)</h3>
+            </div>
+            <div class="text-xs font-mono text-slate-400">Fenêtre : 64 points glissants</div>
+          </div>
+          <div class="relative bg-slate-950 rounded-lg border border-slate-800/80 p-1 flex-1 h-56">
+            <canvas id="oscilloCanvas" class="w-full h-full block rounded"></canvas>
+            <!-- Overlay indicators -->
+            <div class="absolute bottom-2 left-3 text-[11px] font-mono text-slate-500 pointer-events-none">
+              Échelle : ± 4.0 g • Centrage Zero-Mean automatique
+            </div>
+          </div>
+        </div>
+
+        <!-- Live FFT Magnitude Spectrum Canvas (Frequency Domain) -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-4 flex flex-col">
+          <div class="flex items-center justify-between mb-3">
+            <div class="flex items-center gap-2">
+              <span class="w-2.5 h-2.5 rounded-full bg-indigo-400 animate-pulse"></span>
+              <h3 class="font-tech font-semibold text-slate-200 text-sm tracking-wide">SPECTRE FRÉQUENTIEL FFT (0 à 100 Hz)</h3>
+            </div>
+            <div class="text-xs font-mono text-indigo-400" id="fftPeakLabel">Pic Principal : 47.5 Hz</div>
+          </div>
+          <div class="relative bg-slate-950 rounded-lg border border-slate-800/80 p-1 flex-1 h-56">
+            <canvas id="fftCanvas" class="w-full h-full block rounded"></canvas>
+            <div class="absolute bottom-2 left-3 text-[11px] font-mono text-slate-500 pointer-events-none">
+              Fenêtrage Hamming + Radix-2 FFT • Bin 0 DC filtré
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- INTERACTIVE BENCH CONTROLS & LIVE FAULT INJECTION (DEMO TOOLS) -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left 2 cols: Live Fault Injection Lab -->
+        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-5 space-y-4">
+          <div class="flex items-center justify-between border-b border-slate-800 pb-3">
+            <div>
+              <h3 class="font-tech font-bold text-slate-200 text-base flex items-center gap-2">
+                <i class="fa-solid fa-flask-vial text-cyan-400"></i>
+                LABORATOIRE DE DÉMONSTRATION & INJECTION DE PANNES
+              </h3>
+              <p class="text-xs text-slate-400">Simulez les aléas physiques en direct pour montrer la réaction du TinyML au jury</p>
+            </div>
+            <span class="text-xs font-mono bg-slate-800 text-slate-300 px-2.5 py-1 rounded border border-slate-700">Temps de réponse &lt; 50 ms</span>
+          </div>
+
+          <!-- Fault Buttons Grid -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            
+            <!-- Fault 1: Balourd mécanique -->
+            <button onclick="toggleFault('imbalance')" id="btnFaultImbalance" class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-800 bg-slate-950/70 hover:bg-slate-800/80 text-left transition group">
+              <div class="w-9 h-9 rounded-lg bg-indigo-950 text-indigo-400 flex items-center justify-center shrink-0 border border-indigo-800/40 group-hover:scale-105 transition">
+                <i class="fa-solid fa-arrows-spin text-base"></i>
+              </div>
+              <div>
+                <div class="font-tech font-bold text-slate-200 text-sm flex items-center gap-1.5">
+                  <span>Balourd / Déséquilibre Axe</span>
+                  <span id="badgeImbalance" class="hidden text-[10px] bg-red-500/20 text-red-400 border border-red-500/40 px-1.5 py-0.2 rounded font-mono">ACTIF</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">Ajout masse sur l'hélice $\rightarrow$ Hausse brutale du RMS (1.85g) et pic FFT à 65 Hz.</p>
+              </div>
+            </button>
+
+            <!-- Fault 2: Forçage / Frottement mécanique -->
+            <button onclick="toggleFault('friction')" id="btnFaultFriction" class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-800 bg-slate-950/70 hover:bg-slate-800/80 text-left transition group">
+              <div class="w-9 h-9 rounded-lg bg-amber-950 text-amber-400 flex items-center justify-center shrink-0 border border-amber-800/40 group-hover:scale-105 transition">
+                <i class="fa-solid fa-hand-holding-hand text-base"></i>
+              </div>
+              <div>
+                <div class="font-tech font-bold text-slate-200 text-sm flex items-center gap-1.5">
+                  <span>Grippage Palier / Frottement</span>
+                  <span id="badgeFriction" class="hidden text-[10px] bg-red-500/20 text-red-400 border border-red-500/40 px-1.5 py-0.2 rounded font-mono">ACTIF</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">Freinage de l'arbre $\rightarrow$ Courant INA219 grimpe à 1800 mA + chute de vitesse RPM.</p>
+              </div>
+            </button>
+
+            <!-- Fault 3: Dérive Thermique Critique -->
+            <button onclick="toggleFault('thermal')" id="btnFaultThermal" class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-800 bg-slate-950/70 hover:bg-slate-800/80 text-left transition group">
+              <div class="w-9 h-9 rounded-lg bg-rose-950 text-rose-400 flex items-center justify-center shrink-0 border border-rose-800/40 group-hover:scale-105 transition">
+                <i class="fa-solid fa-fire-flame-curved text-base"></i>
+              </div>
+              <div>
+                <div class="font-tech font-bold text-slate-200 text-sm flex items-center gap-1.5">
+                  <span>Surchauffe Moteur (&gt; 75°C)</span>
+                  <span id="badgeThermal" class="hidden text-[10px] bg-red-500/20 text-red-400 border border-red-500/40 px-1.5 py-0.2 rounded font-mono">ACTIF</span>
+                </div>
+                <p class="text-xs text-slate-400 mt-0.5">Échauffement détecté par capteur IR MLX90614 sans contact.</p>
+              </div>
+            </button>
+
+            <!-- Fault 4: Perturbation / Choc parasite isolé -->
+            <button onclick="injectSingleSpike()" class="flex items-start gap-3 p-3.5 rounded-xl border border-slate-800 bg-slate-950/70 hover:bg-slate-800/80 text-left transition group">
+              <div class="w-9 h-9 rounded-lg bg-emerald-950 text-emerald-400 flex items-center justify-center shrink-0 border border-emerald-800/40 group-hover:scale-105 transition">
+                <i class="fa-solid fa-hand-fist text-base"></i>
+              </div>
+              <div>
+                <div class="font-tech font-bold text-slate-200 text-sm">Choc Externe Isolé (Test Filtre)</div>
+                <p class="text-xs text-slate-400 mt-0.5">1 frame parasite $\rightarrow$ Test du filtre anti-rebond (3 trames requises).</p>
+              </div>
+            </button>
+
+          </div>
+        </div>
+
+        <!-- Right col: Motor PWM & Actuator Panel -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-5 flex flex-col justify-between space-y-4">
+          <div>
+            <div class="flex items-center justify-between mb-2">
+              <h3 class="font-tech font-bold text-slate-200 text-base">COMMANDE BLDC / ESC</h3>
+              <span id="motorStateBadge" class="text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/50">ROTATION ACTIVE</span>
+            </div>
+            <p class="text-xs text-slate-400 mb-4">Signal PWM généré par ESP32 (LEDC Timer 50 Hz, 1ms - 2ms pulse)</p>
+
+            <!-- Slider Vitesse Target -->
+            <div class="space-y-2">
+              <div class="flex justify-between text-xs font-mono">
+                <span class="text-slate-400">Consigne Vitesse :</span>
+                <span id="targetPwmLabel" class="text-cyan-400 font-bold">60 % (2850 RPM)</span>
+              </div>
+              <input type="range" id="motorPwmSlider" min="0" max="100" value="60" oninput="updateMotorThrottle(this.value)" class="w-full accent-cyan-400 bg-slate-950 h-2 rounded-lg cursor-pointer">
+              <div class="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>0 % (Arrêt)</span>
+                <span>50 %</span>
+                <span>100 % (6000 RPM)</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Debounce Anomaly Counter -->
+          <div class="bg-slate-950 rounded-lg p-3 border border-slate-800 space-y-1.5">
+            <div class="flex justify-between items-center text-xs font-tech">
+              <span class="text-slate-400">FILTRE ANTI-REBOND SÉCURITÉ :</span>
+              <span id="debounceCountLabel" class="font-mono text-slate-200 font-bold">0 / 3 Frames</span>
+            </div>
+            <div class="grid grid-cols-3 gap-1.5 h-2">
+              <div id="debStep1" class="bg-slate-800 rounded transition-all"></div>
+              <div id="debStep2" class="bg-slate-800 rounded transition-all"></div>
+              <div id="debStep3" class="bg-slate-800 rounded transition-all"></div>
+            </div>
+            <div class="text-[10px] text-slate-500">Nécessite 3 inférences consécutives pour déclencher la coupure</div>
+          </div>
+
+          <!-- Quick Action Buttons -->
+          <div class="grid grid-cols-2 gap-2 pt-1">
+            <button onclick="triggerRearm()" class="w-full py-2 px-3 rounded-lg bg-emerald-600/90 hover:bg-emerald-500 text-white text-xs font-tech font-bold tracking-wider transition flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-play"></i>
+              RÉARMER (RESET)
+            </button>
+            <button onclick="triggerEmergencyStop()" class="w-full py-2 px-3 rounded-lg bg-red-600/90 hover:bg-red-500 text-white text-xs font-tech font-bold tracking-wider transition flex items-center justify-center gap-1.5">
+              <i class="fa-solid fa-power-off"></i>
+              STOP URGENCE
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================================================================= -->
+    <!-- TAB 2: PHYSICAL BENCH SCHEMATIC & SENSOR ANATOMY -->
+    <!-- ========================================================================================= -->
+    <section id="tab-bench" class="tab-content hidden space-y-6">
+      
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6">
+        <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-slate-800 pb-4 mb-6">
+          <div>
+            <h2 class="text-xl font-tech font-bold text-slate-100 flex items-center gap-2">
+              <i class="fa-solid fa-shapes text-cyan-400"></i>
+              ARCHITECTURE DE LA MAQUETTE & DISPOSITION DES CAPTEURS
+            </h2>
+            <p class="text-sm text-slate-400">Banc de test turbine en carton rigide avec intégration des capteurs industriels</p>
+          </div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded-full border border-slate-700">Format : Démonstrateur de Table</span>
+          </div>
+        </div>
+
+        <!-- Visual Interactive Diagram (SVG Maquette) -->
+        <div class="relative bg-slate-950 border border-slate-800 rounded-xl p-4 overflow-hidden">
+          <svg viewBox="0 0 900 480" class="w-full h-auto select-none" id="benchSvg">
+            <defs>
+              <linearGradient id="cardboardGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+                <stop offset="0%" stop-color="#475569" />
+                <stop offset="100%" stop-color="#334155" />
+              </linearGradient>
+              <linearGradient id="metalGrad" x1="0%" y1="0%" x2="100%" y2="0%">
+                <stop offset="0%" stop-color="#94a3b8" />
+                <stop offset="50%" stop-color="#cbd5e1" />
+                <stop offset="100%" stop-color="#64748b" />
+              </linearGradient>
+              <filter id="glow">
+                <feGaussianBlur stdDeviation="3" result="coloredBlur"/>
+                <feMerge>
+                  <feMergeNode in="coloredBlur"/>
+                  <feMergeNode in="SourceGraphic"/>
+                </feMerge>
+              </filter>
+            </defs>
+
+            <!-- Cardboard Base Plate -->
+            <polygon points="50,420 850,420 880,390 80,390" fill="#1e293b" stroke="#334155" stroke-width="2" />
+            <rect x="50" y="420" width="800" height="20" fill="#0f172a" stroke="#334155" stroke-width="2" />
+
+            <!-- Cardboard Turbine Tunnel / Carter -->
+            <path d="M 120 380 L 120 180 Q 250 120 380 180 L 380 380 Z" fill="url(#cardboardGrad)" stroke="#64748b" stroke-width="3" opacity="0.85"/>
+            <!-- Transparent Cover Arc -->
+            <path d="M 140 370 L 140 200 Q 250 140 360 200 L 360 370 Z" fill="#06b6d4" fill-opacity="0.08" stroke="#22d3ee" stroke-width="1.5" stroke-dasharray="4,4"/>
+
+            <!-- Rotating Propeller inside -->
+            <g id="svgPropeller" transform="translate(250, 270)">
+              <circle cx="0" cy="0" r="14" fill="#0284c7" />
+              <!-- Blades -->
+              <ellipse cx="0" cy="-55" rx="14" ry="42" fill="#38bdf8" opacity="0.8" />
+              <ellipse cx="0" cy="55" rx="14" ry="42" fill="#38bdf8" opacity="0.8" />
+              <ellipse cx="-55" cy="0" rx="42" ry="14" fill="#38bdf8" opacity="0.8" />
+              <ellipse cx="55" cy="0" rx="42" ry="14" fill="#38bdf8" opacity="0.8" />
+            </g>
+
+            <!-- Shaft Coupling -->
+            <rect x="250" y="264" width="130" height="12" fill="url(#metalGrad)" stroke="#475569" />
+
+            <!-- BLDC Motor Body (A2212) -->
+            <rect x="380" y="235" width="140" height="70" rx="6" fill="#1e293b" stroke="#0ea5e9" stroke-width="2" />
+            <text x="450" y="275" fill="#f8fafc" font-family="Chakra Petch" font-size="14" font-weight="bold" text-anchor="middle">A2212 BLDC</text>
+            <text x="450" y="292" fill="#94a3b8" font-family="JetBrains Mono" font-size="10" text-anchor="middle">1000KV • 12V</text>
+
+            <!-- Motor Mount Rigid Base -->
+            <polygon points="390,305 510,305 530,380 370,380" fill="#334155" stroke="#475569" stroke-width="2" />
+
+            <!-- SENSOR 1: MPU6050 (Mounted directly on motor) -->
+            <g class="cursor-pointer group" onclick="showSensorModal('mpu')">
+              <rect x="425" y="210" width="50" height="24" rx="3" fill="#0284c7" stroke="#38bdf8" stroke-width="2" filter="url(#glow)"/>
+              <text x="450" y="226" fill="#ffffff" font-family="JetBrains Mono" font-size="9" font-weight="bold" text-anchor="middle">MPU6050</text>
+              <!-- Pointer line -->
+              <line x1="450" y1="210" x2="450" y2="160" stroke="#38bdf8" stroke-width="1.5" stroke-dasharray="3,3"/>
+              <circle cx="450" cy="155" r="4" fill="#38bdf8"/>
+              <rect x="390" y="125" width="120" height="26" rx="4" fill="#0f172a" stroke="#38bdf8" stroke-width="1"/>
+              <text x="450" y="142" fill="#38bdf8" font-family="Chakra Petch" font-size="11" font-weight="bold" text-anchor="middle">Vibrations FFT (Z)</text>
+            </g>
+
+            <!-- SENSOR 2: TCRT5000 Optical Tachometer -->
+            <g class="cursor-pointer group" onclick="showSensorModal('tcrt')">
+              <rect x="300" y="320" width="40" height="24" rx="3" fill="#4f46e5" stroke="#818cf8" stroke-width="2" filter="url(#glow)"/>
+              <text x="320" y="336" fill="#ffffff" font-family="JetBrains Mono" font-size="9" font-weight="bold" text-anchor="middle">TCRT</text>
+              <line x1="320" y1="320" x2="320" y2="280" stroke="#818cf8" stroke-width="1.5" stroke-dasharray="2,2"/>
+              <rect x="250" y="380" width="130" height="26" rx="4" fill="#0f172a" stroke="#818cf8" stroke-width="1"/>
+              <text x="315" y="397" fill="#818cf8" font-family="Chakra Petch" font-size="11" font-weight="bold" text-anchor="middle">Tachymètre (RPM)</text>
+            </g>
+
+            <!-- SENSOR 3: MLX90614 IR Temp -->
+            <g class="cursor-pointer group" onclick="showSensorModal('mlx')">
+              <circle cx="560" cy="270" r="14" fill="#e11d48" stroke="#fb7185" stroke-width="2" filter="url(#glow)"/>
+              <text x="560" y="274" fill="#ffffff" font-family="JetBrains Mono" font-size="8" font-weight="bold" text-anchor="middle">IR</text>
+              <!-- IR Ray beam -->
+              <line x1="546" y1="270" x2="520" y2="270" stroke="#fb7185" stroke-width="2" stroke-dasharray="3,2"/>
+              <rect x="585" y="255" width="135" height="26" rx="4" fill="#0f172a" stroke="#fb7185" stroke-width="1"/>
+              <text x="652" y="272" fill="#fb7185" font-family="Chakra Petch" font-size="11" font-weight="bold" text-anchor="middle">Température IR (°C)</text>
+            </g>
+
+            <!-- SENSOR 4: ESC 30A + INA219 Power -->
+            <g class="cursor-pointer group" onclick="showSensorModal('ina')">
+              <rect x="420" y="340" width="60" height="35" rx="4" fill="#d97706" stroke="#fbbf24" stroke-width="2"/>
+              <text x="450" y="357" fill="#ffffff" font-family="JetBrains Mono" font-size="9" font-weight="bold" text-anchor="middle">INA219</text>
+              <text x="450" y="368" fill="#fef3c7" font-family="JetBrains Mono" font-size="8" text-anchor="middle">ESC 30A</text>
+              <rect x="490" y="380" width="130" height="26" rx="4" fill="#0f172a" stroke="#fbbf24" stroke-width="1"/>
+              <text x="555" y="397" fill="#fbbf24" font-family="Chakra Petch" font-size="11" font-weight="bold" text-anchor="middle">Courant & Puissance</text>
+            </g>
+
+            <!-- PUPITRE DE COMMANDE & AFFICHAGE (OLED + LEDS + BUZZER) -->
+            <g transform="translate(670, 290)">
+              <!-- Pupitre box -->
+              <polygon points="0,90 170,90 190,40 20,40" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+              <rect x="0" y="90" width="170" height="30" fill="#0f172a" stroke="#475569" stroke-width="2"/>
+              
+              <!-- OLED Screen Miniature -->
+              <rect x="35" y="48" width="55" height="32" rx="2" fill="#020617" stroke="#38bdf8" stroke-width="1"/>
+              <text x="62" y="60" fill="#38bdf8" font-family="JetBrains Mono" font-size="6" text-anchor="middle">NORMAL</text>
+              <text x="62" y="70" fill="#94a3b8" font-family="JetBrains Mono" font-size="5" text-anchor="middle">2850 RPM</text>
+
+              <!-- LED Healthy (Green) -->
+              <circle id="svgLedGreen" cx="108" cy="56" r="6" fill="#10b981" filter="url(#glow)"/>
+              <!-- LED Alarm (Red) -->
+              <circle id="svgLedRed" cx="128" cy="56" r="6" fill="#334155"/>
+              <!-- Buzzer -->
+              <circle cx="108" cy="74" r="7" fill="#0f172a" stroke="#64748b" stroke-width="1.5"/>
+
+              <!-- Big Red Emergency Stop / Rearm Button -->
+              <circle cx="145" cy="70" r="12" fill="#dc2626" stroke="#fca5a5" stroke-width="2" class="cursor-pointer" onclick="triggerEmergencyStop()"/>
+            </g>
+
+          </svg>
+        </div>
+
+        <!-- Sensor Feature Matrix -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mt-6">
+          <div class="p-4 bg-slate-950/60 rounded-lg border border-cyan-900/40">
+            <div class="text-xs text-cyan-400 font-mono font-semibold">CAPTEUR 1 • I2C (0x68)</div>
+            <div class="font-tech font-bold text-slate-100 mt-1">MPU6050 Vibrations</div>
+            <p class="text-xs text-slate-400 mt-1">Échantillonnage 200 Hz. Extraction continue du RMS, Crête et spectre FFT 64 points.</p>
+          </div>
+          <div class="p-4 bg-slate-950/60 rounded-lg border border-indigo-900/40">
+            <div class="text-xs text-indigo-400 font-mono font-semibold">CAPTEUR 2 • GPIO INTERRUPT</div>
+            <div class="font-tech font-bold text-slate-100 mt-1">TCRT5000 Tachymètre</div>
+            <p class="text-xs text-slate-400 mt-1">Mesure directe de la vitesse en RPM par interruption matérielle sur front montant.</p>
+          </div>
+          <div class="p-4 bg-slate-950/60 rounded-lg border border-amber-900/40">
+            <div class="text-xs text-amber-400 font-mono font-semibold">CAPTEUR 3 • I2C (0x40)</div>
+            <div class="font-tech font-bold text-slate-100 mt-1">INA219 Courant/Tension</div>
+            <p class="text-xs text-slate-400 mt-1">Surveillance électrique haute précision. Détecte le grippage et le forçage d'arbre en mA.</p>
+          </div>
+          <div class="p-4 bg-slate-950/60 rounded-lg border border-rose-900/40">
+            <div class="text-xs text-rose-400 font-mono font-semibold">CAPTEUR 4 • I2C (0x5A)</div>
+            <div class="font-tech font-bold text-slate-100 mt-1">MLX90614 Température IR</div>
+            <p class="text-xs text-slate-400 mt-1">Mesure optique de la température de surface du stator sans contact mécanique.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================================================================= -->
+    <!-- TAB 3: ELECTRONICS & PINOUT SCHEMATICS -->
+    <!-- ========================================================================================= -->
+    <section id="tab-wiring" class="tab-content hidden space-y-6">
+      
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
+        <div>
+          <h2 class="text-xl font-tech font-bold text-slate-100 flex items-center gap-2">
+            <i class="fa-solid fa-network-wired text-cyan-400"></i>
+            BROCHAGE & PLAN DE CÂBLAGE INDUSTRIEL (ESP32)
+          </h2>
+          <p class="text-sm text-slate-400">Schéma des connexions, partage du bus I2C et séparation des alimentations Puissance / Logique</p>
+        </div>
+
+        <!-- Pinout Table -->
+        <div class="overflow-x-auto">
+          <table class="w-full text-left text-sm font-mono border-collapse">
+            <thead>
+              <tr class="bg-slate-950 text-cyan-400 border-b border-slate-800">
+                <th class="p-3">Module / Actionneur</th>
+                <th class="p-3">Broche Module</th>
+                <th class="p-3">Broche ESP32</th>
+                <th class="p-3">Type Signal</th>
+                <th class="p-3">Alimentation</th>
+                <th class="p-3">Description & Rôle</th>
+              </tr>
+            </thead>
+            <tbody class="divide-y divide-slate-800/80 text-xs">
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">MPU6050 (Vibrations)</td>
+                <td class="p-3">SDA / SCL</td>
+                <td class="p-3 text-cyan-300 font-bold">GPIO 21 / GPIO 22</td>
+                <td class="p-3">I2C (0x68)</td>
+                <td class="p-3 text-emerald-400">3.3V (ESP32)</td>
+                <td class="p-3 text-slate-400">Accéléromètre 3 axes (échantillonné à 200 Hz)</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">INA219 (Puissance)</td>
+                <td class="p-3">SDA / SCL</td>
+                <td class="p-3 text-cyan-300 font-bold">GPIO 21 / GPIO 22</td>
+                <td class="p-3">I2C (0x40)</td>
+                <td class="p-3 text-emerald-400">3.3V (ESP32)</td>
+                <td class="p-3 text-slate-400">Mesure shunt high-side sur le rail 12V moteur</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">MLX90614 (Temp IR)</td>
+                <td class="p-3">SDA / SCL</td>
+                <td class="p-3 text-cyan-300 font-bold">GPIO 21 / GPIO 22</td>
+                <td class="p-3">I2C (0x5A)</td>
+                <td class="p-3 text-emerald-400">3.3V (ESP32)</td>
+                <td class="p-3 text-slate-400">Thermomètre optique infrarouge orienté sur le moteur</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">Écran OLED SSD1306</td>
+                <td class="p-3">SDA / SCL</td>
+                <td class="p-3 text-cyan-300 font-bold">GPIO 21 / GPIO 22</td>
+                <td class="p-3">I2C (0x3C)</td>
+                <td class="p-3 text-emerald-400">3.3V (ESP32)</td>
+                <td class="p-3 text-slate-400">Télémétrie et diagnostic embarqué en direct</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40 bg-slate-950/40">
+                <td class="p-3 font-bold text-slate-200">TCRT5000 (Tachymètre)</td>
+                <td class="p-3">DO (Digital Out)</td>
+                <td class="p-3 text-amber-300 font-bold">GPIO 34</td>
+                <td class="p-3">Digital Interrupt</td>
+                <td class="p-3 text-emerald-400">3.3V (ESP32)</td>
+                <td class="p-3 text-slate-400">Fronts d'interruption pour comptage RPM matériel</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">ESC 30A (Moteur BLDC)</td>
+                <td class="p-3">Signal (Blanc/Orange)</td>
+                <td class="p-3 text-indigo-300 font-bold">GPIO 25</td>
+                <td class="p-3">PWM (LEDC 50Hz)</td>
+                <td class="p-3 text-amber-400 font-bold">12V Ext. (V_EXT)</td>
+                <td class="p-3 text-slate-400">Consigne vitesse impulsion 1000 µs à 2000 µs</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">LED Verte (Normal)</td>
+                <td class="p-3">Anode (+)</td>
+                <td class="p-3 text-indigo-300 font-bold">GPIO 18</td>
+                <td class="p-3">Digital Output</td>
+                <td class="p-3 text-emerald-400">3.3V + 220Ω</td>
+                <td class="p-3 text-slate-400">Indicateur d'état nominal stable</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">LED Rouge (Alarme)</td>
+                <td class="p-3">Anode (+)</td>
+                <td class="p-3 text-indigo-300 font-bold">GPIO 19</td>
+                <td class="p-3">Digital Output</td>
+                <td class="p-3 text-emerald-400">3.3V + 220Ω</td>
+                <td class="p-3 text-slate-400">Signalisation d'anomalie critique ou urgence</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40">
+                <td class="p-3 font-bold text-slate-200">Buzzer d'Urgence</td>
+                <td class="p-3">Borne (+)</td>
+                <td class="p-3 text-indigo-300 font-bold">GPIO 23</td>
+                <td class="p-3">PWM Tone (1kHz)</td>
+                <td class="p-3 text-emerald-400">3.3V / 5V</td>
+                <td class="p-3 text-slate-400">Alarme sonore stridente lors du basculement FSM</td>
+              </tr>
+              <tr class="hover:bg-slate-800/40 bg-slate-950/40">
+                <td class="p-3 font-bold text-slate-200">Bouton Reset / Réarm</td>
+                <td class="p-3">Contact NO</td>
+                <td class="p-3 text-cyan-300 font-bold">GPIO 15</td>
+                <td class="p-3">Digital Input (Pullup)</td>
+                <td class="p-3 text-slate-400">GND Commun</td>
+                <td class="p-3 text-slate-400">Réarmement volontaire de la machine à états</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- Crucial Hardware Rules Banner -->
+        <div class="bg-amber-950/30 border border-amber-500/40 rounded-xl p-4 flex items-start gap-3">
+          <i class="fa-solid fa-triangle-exclamation text-amber-400 text-lg mt-0.5 shrink-0"></i>
+          <div class="text-xs text-amber-200/90 space-y-1">
+            <span class="font-bold text-amber-300 uppercase tracking-wide">Règles critiques d'alimentation & Sécurité Masse Commune :</span>
+            <p>1. <strong>Masse Commune (GND) :</strong> Le GND de l'ESP32, le GND de l'ESC 30A et le GND de l'alimentation 12V DOIVENT être impérativement interconnectés.</p>
+            <p>2. <strong>Bus I2C Multi-Capteurs :</strong> Les 4 composants I2C (MPU6050, INA219, MLX90614, OLED) partagent tous les mêmes broches <strong>GPIO 21 (SDA)</strong> et <strong>GPIO 22 (SCL)</strong> grâce à leurs adresses matérielles distinctes.</p>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+    <!-- ========================================================================================= -->
+    <!-- TAB 4: SERIAL TERMINAL FOR LIVE PROJECTOR PRESENTATION -->
+    <!-- ========================================================================================= -->
+    <section id="tab-serial" class="tab-content hidden space-y-6">
+      
+      <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 flex flex-col h-[650px]">
+        <div class="flex items-center justify-between border-b border-slate-800 pb-3 mb-3">
+          <div class="flex items-center gap-2 font-mono text-sm text-slate-300">
+            <i class="fa-solid fa-terminal text-cyan-400"></i>
+            <span>PORT SÉRIE VIRTUEL : <span class="text-emerald-400 font-bold">/dev/ttyUSB0 (115200 Baud)</span></span>
+          </div>
+          <div class="flex gap-2">
+            <button onclick="clearTerminal()" class="text-xs bg-slate-800 hover:bg-slate-700 text-slate-300 px-3 py-1 rounded transition font-mono">
+              <i class="fa-solid fa-trash-can"></i> Effacer
+            </button>
+            <button onclick="sendSerialCommand('STATUS')" class="text-xs bg-cyan-950 text-cyan-300 border border-cyan-800 px-3 py-1 rounded transition font-mono">
+              STATUS
+            </button>
+            <button onclick="sendSerialCommand('HELP')" class="text-xs bg-slate-800 text-slate-300 px-3 py-1 rounded transition font-mono">
+              HELP
+            </button>
+          </div>
+        </div>
+
+        <!-- Terminal Output Screen -->
+        <div id="terminalScreen" class="flex-1 bg-slate-950 rounded-lg p-4 font-mono text-xs text-slate-300 overflow-y-auto space-y-1 border border-slate-800/80 select-text">
+          <div class="text-slate-500">// Terminal série connecté à l'ESP32. Télémétrie active...</div>
+          <div class="text-cyan-400">[SYSTEM] ESP32 Core 1 initialisé. MPU6050=OK | INA219=OK | MLX90614=OK | TCRT5000=OK</div>
+          <div class="text-emerald-400">[SYSTEM] Modèle TinyML Random Forest chargé en mémoire Flash (< 12 Ko). Inférence prête.</div>
+        </div>
+
+        <!-- Terminal Command Input -->
+        <div class="pt-3 flex gap-2">
+          <span class="font-mono text-cyan-400 flex items-center">&gt;</span>
+          <input type="text" id="serialInput" placeholder="Tapez une commande série (ex: INJECT_VIB, INJECT_TEMP, RESET, STATUS)..." class="flex-1 bg-slate-950 border border-slate-800 rounded px-3 py-2 text-xs font-mono text-slate-200 focus:outline-none focus:border-cyan-500" onkeydown="if(event.key==='Enter') executeCommandInput()">
+          <button onclick="executeCommandInput()" class="bg-cyan-600 hover:bg-cyan-500 text-slate-950 font-bold px-4 py-2 rounded text-xs font-mono transition">
+            Envoyer
+          </button>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ========================================================================================= -->
+    <!-- TAB 5: JURY SCRIPT, PITCH & DEFENSE ARGUMENTS -->
+    <!-- ========================================================================================= -->
+    <section id="tab-pitch" class="tab-content hidden space-y-6">
+      
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left 2 cols: Pitch & Presentation Flow -->
+        <div class="lg:col-span-2 bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-6">
+          <div>
+            <span class="text-xs font-mono bg-cyan-950 text-cyan-400 border border-cyan-700/50 px-2 py-0.5 rounded uppercase">Guide Déroulé Soutenance</span>
+            <h2 class="text-xl font-tech font-bold text-slate-100 mt-2">LE SCÉNARIO PARFAIT DE SOUTENANCE (3 MINUTES)</h2>
+            <p class="text-sm text-slate-400">Comment structurer votre discours pour captiver le jury immédiatement</p>
+          </div>
+
+          <!-- Step 1 -->
+          <div class="border-l-2 border-cyan-500 pl-4 space-y-1">
+            <div class="text-xs font-mono text-cyan-400 font-bold">0:00 - 0:45 • L'ACCROCHE INDUSTRIELLE & LA PROBLÉMATIQUE</div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              <em>"Messieurs les membres du jury, dans l'industrie lourde et l'énergie (turbines, centrales de pompage), l'arrêt imprévu d'un rotor coûte des millions. Les approches classiques attendent la casse ou coupent sur de simples seuils fixes souvent inefficaces. Nous avons conçu un <strong>Banc d'Essai de Maintenance Prédictive Edge-AI</strong> autonome combinant 4 dimensions physiques (vibratoire, électrique, thermique et tachymétrique) avec un modèle TinyML embarqué directement dans un microcontrôleur ESP32."</em>
+            </p>
+          </div>
+
+          <!-- Step 2 -->
+          <div class="border-l-2 border-indigo-500 pl-4 space-y-1">
+            <div class="text-xs font-mono text-indigo-400 font-bold">0:45 - 1:45 • LA DÉMONSTRATION EN DIRECT (LIVE DEMO)</div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              <em>"Regardez l'écran : le moteur tourne à 2850 RPM, le signal vibratoire est stable, le spectre FFT montre une fréquence propre à 47 Hz. Maintenant, j'applique un défaut mécanique (balourd). En moins de 50 millisecondes, sans aucune connexion cloud, l'IA détecte l'altération spectrale, valide 3 trames consécutives via notre filtre anti-rebond et déclenche la coupure d'urgence de puissance avec alarme sonore et verrouillage sécurisé."</em>
+            </p>
+          </div>
+
+          <!-- Step 3 -->
+          <div class="border-l-2 border-emerald-500 pl-4 space-y-1">
+            <div class="text-xs font-mono text-emerald-400 font-bold">1:45 - 2:30 • EXPLICATION DE L'INGÉNIERIE DSP & MLOPS</div>
+            <p class="text-xs text-slate-300 leading-relaxed">
+              <em>"Côté algorithmique : nous n'injectons pas des données brutes au hasard. Nous appliquons un fenêtrage de Hamming, une FFT Radix-2 pour extraire le pic fréquentiel dominant, et nous combinons le RMS avec la puissance électrique instantanée (INA219). Le modèle Random Forest a été exporté en C++ pur avec zéro allocation dynamique de mémoire (0 fragmentation RAM)."</em>
+            </p>
+          </div>
+        </div>
+
+        <!-- Right col: Responses to Tough Jury Questions -->
+        <div class="bg-slate-900 border border-slate-800 rounded-xl p-6 space-y-4">
+          <h3 class="font-tech font-bold text-slate-200 text-base flex items-center gap-2">
+            <i class="fa-solid fa-shield-halved text-emerald-400"></i>
+            RÉPONSES AUX QUESTIONS PIÈGES DU JURY
+          </h3>
+
+          <div class="space-y-3 text-xs">
+            <div class="p-3 bg-slate-950 rounded-lg border border-slate-800">
+              <div class="font-bold text-cyan-300">Q : Pourquoi ne pas avoir utilisé un Raspberry Pi ?</div>
+              <p class="text-slate-400 mt-1"><strong>R :</strong> Le Raspberry Pi consomme 15W et tourne sous Linux (non temps réel dur). Notre ESP32 consomme moins de 0.5W, démarre instantanément en 10ms et offre une latence de coupure déterministe inférieure à 10 microsecondes.</p>
+            </div>
+
+            <div class="p-3 bg-slate-950 rounded-lg border border-slate-800">
+              <div class="font-bold text-cyan-300">Q : Comment évitez-vous les faux positifs ?</div>
+              <p class="text-slate-400 mt-1"><strong>R :</strong> Grâce à notre Machine à États (FSM) équipée d'un filtre anti-rebond temporel : un choc mécanique isolé passe en simple statut `WARNING` ; il faut 3 trames anormales consécutives pour confirmer une rupture mécanique.</p>
+            </div>
+
+            <div class="p-3 bg-slate-950 rounded-lg border border-slate-800">
+              <div class="font-bold text-cyan-300">Q : Pourquoi la fusion multi-capteurs ?</div>
+              <p class="text-slate-400 mt-1"><strong>R :</strong> La vibration détecte le déséquilibre mécanique, le courant INA219 détecte le forçage électrique avant même la vibration, et le capteur IR MLX90614 prévient le point de fusion thermique.</p>
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+    </section>
+
+  </main>
+
+  <!-- FOOTER -->
+  <footer class="border-t border-slate-800 py-3 bg-slate-950 text-center text-xs text-slate-500 font-mono">
+    Projet Ingénierie & TinyML • Banc d'Essai Turbine Industrielle • Supervision Temps Réel & Soutenance Live
+  </footer>
+
+  <!-- SENSOR DETAIL MODAL -->
+  <div id="sensorModal" class="fixed inset-0 bg-slate-950/80 backdrop-blur-sm z-50 hidden flex items-center justify-center p-4">
+    <div class="bg-slate-900 border border-slate-700 rounded-xl max-w-md w-full p-6 space-y-4 shadow-2xl">
+      <div class="flex justify-between items-center border-b border-slate-800 pb-3">
+        <h3 id="modalTitle" class="font-tech font-bold text-slate-100 text-lg">Détails Capteur</h3>
+        <button onclick="closeSensorModal()" class="text-slate-400 hover:text-slate-200">
+          <i class="fa-solid fa-xmark text-lg"></i>
+        </button>
+      </div>
+      <div id="modalBody" class="text-xs text-slate-300 space-y-2 leading-relaxed font-mono">
+        <!-- Content injected dynamically -->
+      </div>
+      <div class="pt-2">
+        <button onclick="closeSensorModal()" class="w-full py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 rounded font-mono text-xs font-semibold">
+          Fermer
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ========================================================================================= -->
+  <!-- JAVASCRIPT REAL-TIME ENGINE & WEB AUDIO SIMULATION -->
+  <!-- ========================================================================================= -->
+  <script>
+    // --- GLOBAL SIMULATION STATE ---
+    const state = {
+      fsm: 'STATE_NORMAL', // STATE_NORMAL, STATE_WARNING, STATE_ALARM
+      motorThrottle: 0.6, // 0 to 1
+      baseRpm: 2850,
+      currentRpm: 2850,
+      currentRms: 0.84,
+      currentPeak: 1.12,
+      currentFreq: 47.5,
+      currentMa: 420,
+      currentVolt: 11.85,
+      currentTemp: 31.4,
+      debounceCount: 0,
+      debounceMax: 3,
+      
+      // Fault Injection Flags
+      faultImbalance: false,
+      faultFriction: false,
+      faultThermal: false,
+      
+      // Audio
+      audioEnabled: true,
+      audioCtx: null,
+      motorOsc: null,
+      motorGain: null,
+      buzzerOsc: null,
+      buzzerGain: null
+    };
+
+    // Data buffers for graphs (64 points)
+    const BUFFER_SIZE = 64;
+    const timeDomainBuffer = new Array(BUFFER_SIZE).fill(0);
+    const fftBuffer = new Array(32).fill(0);
+
+    // Canvases
+    let oscilloCanvas, oscilloCtx;
+    let fftCanvas, fftCtx;
+    let propRotation = 0;
+
+    // --- INITIALIZATION ---
+    window.addEventListener('load', () => {
+      oscilloCanvas = document.getElementById('oscilloCanvas');
+      oscilloCtx = oscilloCanvas.getContext('2d');
+      fftCanvas = document.getElementById('fftCanvas');
+      fftCtx = fftCanvas.getContext('2d');
+
+      resizeCanvases();
+      window.addEventListener('resize', resizeCanvases);
+
+      // Start Audio System on first click
+      document.body.addEventListener('click', initAudioContext, { once: true });
+      document.getElementById('audioToggleBtn').addEventListener('click', toggleAudio);
+
+      // Start animation loops
+      requestAnimationFrame(renderLoop);
+      setInterval(simulationPhysicsTick, 100); // 10 Hz telemetry & AI tick
+      setInterval(logTelemetryLine, 1200);     // Periodic serial telemetry stream
+    });
+
+    function resizeCanvases() {
+      if (oscilloCanvas && fftCanvas) {
+        oscilloCanvas.width = oscilloCanvas.clientWidth * window.devicePixelRatio;
+        oscilloCanvas.height = oscilloCanvas.clientHeight * window.devicePixelRatio;
+        fftCanvas.width = fftCanvas.clientWidth * window.devicePixelRatio;
+        fftCanvas.height = fftCanvas.clientHeight * window.devicePixelRatio;
+      }
+    }
+
+    // --- WEB AUDIO API ENGINE ---
+    function initAudioContext() {
+      if (state.audioCtx) return;
+      try {
+        const AudioCtx = window.AudioContext || window.webkitAudioContext;
+        state.audioCtx = new AudioCtx();
+
+        // 1. Motor Turbine Drone Synthesizer
+        state.motorOsc = state.audioCtx.createOscillator();
+        state.motorOsc.type = 'sawtooth';
+        state.motorGain = state.audioCtx.createGain();
+        state.motorGain.gain.setValueAtTime(0.04, state.audioCtx.currentTime);
+        
+        // Lowpass filter for smooth turbine whoosh
+        const filter = state.audioCtx.createBiquadFilter();
+        filter.type = 'lowpass';
+        filter.frequency.setValueAtTime(400, state.audioCtx.currentTime);
+
+        state.motorOsc.connect(filter);
+        filter.connect(state.motorGain);
+        state.motorGain.connect(state.audioCtx.destination);
+        state.motorOsc.start();
+
+        // 2. Alarm Buzzer Synthesizer (1000 Hz)
+        state.buzzerOsc = state.audioCtx.createOscillator();
+        state.buzzerOsc.type = 'square';
+        state.buzzerOsc.frequency.setValueAtTime(1000, state.audioCtx.currentTime);
+        state.buzzerGain = state.audioCtx.createGain();
+        state.buzzerGain.gain.setValueAtTime(0, state.audioCtx.currentTime);
+
+        state.buzzerOsc.connect(state.buzzerGain);
+        state.buzzerGain.connect(state.audioCtx.destination);
+        state.buzzerOsc.start();
+
+      } catch (e) {
+        console.warn("Web Audio indisponible");
+      }
+    }
+
+    function toggleAudio() {
+      state.audioEnabled = !state.audioEnabled;
+      const btn = document.getElementById('audioBtnText');
+      const icon = document.getElementById('audioIcon');
+      if (state.audioEnabled) {
+        btn.innerText = "Audio : ON";
+        icon.className = "fa-solid fa-volume-high text-cyan-400";
+        if (state.motorGain && state.fsm !== 'STATE_ALARM') state.motorGain.gain.setTargetAtTime(0.04, state.audioCtx.currentTime, 0.1);
+      } else {
+        btn.innerText = "Audio : OFF";
+        icon.className = "fa-solid fa-volume-xmark text-slate-500";
+        if (state.motorGain) state.motorGain.gain.setTargetAtTime(0, state.audioCtx.currentTime, 0.05);
+        if (state.buzzerGain) state.buzzerGain.gain.setTargetAtTime(0, state.audioCtx.currentTime, 0.05);
+      }
+    }
+
+    function updateAudioDrone() {
+      if (!state.audioCtx || !state.audioEnabled) return;
+      if (state.fsm === 'STATE_ALARM' || state.currentRpm < 50) {
+        state.motorGain.gain.setTargetAtTime(0, state.audioCtx.currentTime, 0.1);
+      } else {
+        const pitch = 50 + (state.currentRpm / 6000) * 180;
+        state.motorOsc.frequency.setTargetAtTime(pitch, state.audioCtx.currentTime, 0.1);
+        state.motorGain.gain.setTargetAtTime(0.04, state.audioCtx.currentTime, 0.1);
+      }
+
+      // Buzzer in Alarm
+      if (state.fsm === 'STATE_ALARM' && state.audioEnabled) {
+        state.buzzerGain.gain.setTargetAtTime(0.12, state.audioCtx.currentTime, 0.05);
+      } else if (state.buzzerGain) {
+        state.buzzerGain.gain.setTargetAtTime(0, state.audioCtx.currentTime, 0.05);
+      }
+    }
+
+    // --- SIMULATION PHYSICS & TINYML INFERENCE ENGINE ---
+    function simulationPhysicsTick() {
+      // 1. Motor Speed response
+      if (state.fsm === 'STATE_ALARM') {
+        state.currentRpm = Math.max(0, state.currentRpm - 250);
+        state.currentMa = Math.max(0, state.currentMa - 50);
+      } else {
+        let targetRpm = state.motorThrottle * 4750;
+        if (state.faultFriction) targetRpm *= 0.45; // Friction slows down rotor
+        state.currentRpm += (targetRpm - state.currentRpm) * 0.3;
+      }
+
+      // 2. Base Vibrations & Physics Simulation
+      const rpmFraction = state.currentRpm / 4750;
+      let targetRms = 0.4 + rpmFraction * 0.55;
+      let targetPeak = targetRms * 1.35;
+      let targetFreq = 10 + rpmFraction * 40;
+      let targetMa = 200 + rpmFraction * 450;
+      let targetTemp = 28.0 + rpmFraction * 8.0;
+
+      // Apply Injected Fault Effects
+      if (state.faultImbalance) {
+        targetRms += 1.35; // Huge RMS surge
+        targetPeak += 2.2;
+        targetFreq = 65.6; // High abnormal harmonic
+      }
+      if (state.faultFriction) {
+        targetMa += 1350; // Current surge
+        targetTemp += 18.0;
+        targetRms += 0.6;
+      }
+      if (state.faultThermal) {
+        targetTemp += 48.0; // Overheating
+      }
+
+      // Smooth state transitions with natural sensor noise
+      const noise = () => (Math.random() - 0.5) * 0.08;
+      state.currentRms = Math.max(0.1, state.currentRms + (targetRms - state.currentRms) * 0.4 + noise());
+      state.currentPeak = Math.max(0.2, state.currentPeak + (targetPeak - state.currentPeak) * 0.4 + noise());
+      state.currentFreq = Math.max(0, targetFreq + (Math.random() - 0.5) * 1.5);
+      state.currentMa = Math.max(0, state.currentMa + (targetMa - state.currentMa) * 0.4 + (Math.random() - 0.5) * 15);
+      state.currentTemp = state.currentTemp + (targetTemp - state.currentTemp) * 0.1;
+
+      // 3. Generate Time-Domain Signal (Axe Z 64 points)
+      for (let i = 0; i < BUFFER_SIZE; i++) {
+        const t = (Date.now() / 1000) * (state.currentFreq * 0.1) + (i * 0.15);
+        let sample = Math.sin(t) * (state.currentRms * 1.4);
+        if (state.faultImbalance) sample += Math.sin(t * 2.8) * 1.2;
+        sample += (Math.random() - 0.5) * 0.25; // White noise
+        timeDomainBuffer[i] = sample;
+      }
+
+      // 4. Compute Simulated FFT Bins
+      const dominantBin = Math.min(31, Math.max(1, Math.round((state.currentFreq / 100) * 32)));
+      for (let k = 0; k < 32; k++) {
+        if (k === 0) {
+          fftBuffer[0] = 0; // Suppress DC bin
+        } else {
+          const dist = Math.abs(k - dominantBin);
+          let mag = Math.max(0, (state.currentRms * 12) / (1 + dist * 2.5));
+          mag += Math.random() * 0.8;
+          fftBuffer[k] = mag;
+        }
+      }
+
+      // 5. Run TinyML Random Forest Classification Model
+      const isAnomaly = (state.currentRms > 1.35 || state.currentMa > 1200 || state.currentTemp > 65.0 || state.faultImbalance);
+      
+      // 6. State Machine & Anti-Rebound Engine
+      if (state.fsm !== 'STATE_ALARM') {
+        if (isAnomaly) {
+          state.debounceCount++;
+          if (state.debounceCount >= state.debounceMax) {
+            // Trigger emergency cutoff
+            triggerEmergencyStop();
+          } else {
+            state.fsm = 'STATE_WARNING';
+          }
+        } else {
+          state.debounceCount = 0;
+          state.fsm = 'STATE_NORMAL';
+        }
+      }
+
+      // Update Audio
+      updateAudioDrone();
+
+      // Update UI Telemetry Elements
+      updateUI();
+    }
+
+    // --- UI REFRESH & TELEMETRY UPDATE ---
+    function updateUI() {
+      // 1. Gauges values
+      document.getElementById('gaugeRpmValue').innerText = Math.round(state.currentRpm);
+      document.getElementById('gaugeRpmBar').style.width = `${Math.min(100, (state.currentRpm / 6000) * 100)}%`;
+
+      const rmsEl = document.getElementById('gaugeRmsValue');
+      rmsEl.innerText = state.currentRms.toFixed(2) + " g";
+      document.getElementById('gaugeRmsBar').style.width = `${Math.min(100, (state.currentRms / 3.5) * 100)}%`;
+
+      document.getElementById('gaugeFreqValue').innerText = state.currentFreq.toFixed(1) + " Hz";
+      document.getElementById('fftPeakLabel').innerText = `Pic Principal : ${state.currentFreq.toFixed(1)} Hz`;
+      document.getElementById('gaugeFreqBar').style.width = `${Math.min(100, (state.currentFreq / 100) * 100)}%`;
+
+      document.getElementById('gaugeCurrentValue').innerText = Math.round(state.currentMa) + " mA";
+      document.getElementById('gaugeVoltValue').innerText = `${state.currentVolt.toFixed(2)} V • ${((state.currentMa * state.currentVolt) / 1000).toFixed(2)} W`;
+      document.getElementById('gaugeCurrentBar').style.width = `${Math.min(100, (state.currentMa / 2500) * 100)}%`;
+
+      document.getElementById('gaugeTempValue').innerText = state.currentTemp.toFixed(1) + " °C";
+      document.getElementById('gaugeTempBar').style.width = `${Math.min(100, (state.currentTemp / 90) * 100)}%`;
+
+      // 2. TinyML Verdict Card
+      const mlVerdict = document.getElementById('gaugeMlVerdict');
+      const mlConf = document.getElementById('gaugeMlConf');
+      const mlBar = document.getElementById('gaugeMlBar');
+
+      if (state.fsm === 'STATE_ALARM') {
+        mlVerdict.innerText = "PANNE CRITIQUE";
+        mlVerdict.className = "text-xl font-tech font-bold text-red-500 animate-pulse";
+        mlConf.innerText = "99.8% (ANOMALIE)";
+        mlBar.className = "bg-red-500 h-full w-[99%]";
+      } else if (state.fsm === 'STATE_WARNING') {
+        mlVerdict.innerText = "ATTENTION";
+        mlVerdict.className = "text-xl font-tech font-bold text-amber-400";
+        mlConf.innerText = "82.5% (DÉRIVE)";
+        mlBar.className = "bg-amber-400 h-full w-[82%]";
+      } else {
+        mlVerdict.innerText = "NORMAL";
+        mlVerdict.className = "text-xl font-tech font-bold text-emerald-400";
+        mlConf.innerText = "98.4% (STABLE)";
+        mlBar.className = "bg-emerald-400 h-full w-[98%]";
+      }
+
+      // 3. Central Top Header Status Pill
+      const fsmPill = document.getElementById('fsmPill');
+      const fsmText = document.getElementById('fsmText');
+      const fsmDot = document.getElementById('fsmDot');
+      const fsmPing = document.getElementById('fsmPing');
+      const fanIcon = document.getElementById('headerFanIcon');
+
+      if (state.fsm === 'STATE_ALARM') {
+        fsmPill.className = "flex items-center gap-3 px-4 py-1.5 rounded-full border border-red-500/80 bg-red-950/70 text-red-400 font-tech text-sm tracking-wide glow-alarm";
+        fsmText.innerText = "URGENCE : COUPURE MOTEUR (STATE_ALARM)";
+        fsmDot.className = "relative inline-flex rounded-full h-3 w-3 bg-red-500";
+        fsmPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75";
+        fanIcon.classList.remove('animate-spin');
+      } else if (state.fsm === 'STATE_WARNING') {
+        fsmPill.className = "flex items-center gap-3 px-4 py-1.5 rounded-full border border-amber-500/80 bg-amber-950/70 text-amber-400 font-tech text-sm tracking-wide glow-warning";
+        fsmText.innerText = "ALERTE : VIBRATION ANORMALE (STATE_WARNING)";
+        fsmDot.className = "relative inline-flex rounded-full h-3 w-3 bg-amber-500";
+        fsmPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-amber-400 opacity-75";
+        fanIcon.classList.add('animate-spin');
+      } else {
+        fsmPill.className = "flex items-center gap-3 px-4 py-1.5 rounded-full border border-emerald-500/40 bg-emerald-950/40 text-emerald-400 font-tech text-sm tracking-wide glow-healthy";
+        fsmText.innerText = "SYSTÈME NOMINAL (STATE_NORMAL)";
+        fsmDot.className = "relative inline-flex rounded-full h-3 w-3 bg-emerald-500";
+        fsmPing.className = "animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75";
+        fanIcon.classList.add('animate-spin');
+      }
+
+      // 4. Debounce step indicators
+      document.getElementById('debounceCountLabel').innerText = `${state.debounceCount} / ${state.debounceMax} Frames`;
+      document.getElementById('debStep1').className = state.debounceCount >= 1 ? 'bg-amber-500 rounded' : 'bg-slate-800 rounded';
+      document.getElementById('debStep2').className = state.debounceCount >= 2 ? 'bg-amber-500 rounded' : 'bg-slate-800 rounded';
+      document.getElementById('debStep3').className = state.debounceCount >= 3 ? 'bg-red-500 rounded' : 'bg-slate-800 rounded';
+
+      // 5. SVG LEDs
+      const ledGreen = document.getElementById('svgLedGreen');
+      const ledRed = document.getElementById('svgLedRed');
+      if (ledGreen && ledRed) {
+        if (state.fsm === 'STATE_NORMAL') {
+          ledGreen.setAttribute('fill', '#10b981');
+          ledRed.setAttribute('fill', '#334155');
+        } else if (state.fsm === 'STATE_WARNING') {
+          ledGreen.setAttribute('fill', '#f59e0b');
+          ledRed.setAttribute('fill', '#f59e0b');
+        } else {
+          ledGreen.setAttribute('fill', '#334155');
+          ledRed.setAttribute('fill', '#ef4444');
+        }
+      }
+    }
+
+    // --- CANVAS RENDERING (OSCILLOSCOPE & FFT) ---
+    function renderLoop() {
+      renderOscilloscope();
+      renderFFTSpectrum();
+      animateSvgPropeller();
+      requestAnimationFrame(renderLoop);
+    }
+
+    function renderOscilloscope() {
+      if (!oscilloCanvas || !oscilloCtx) return;
+      const w = oscilloCanvas.width;
+      const h = oscilloCanvas.height;
+      const ctx = oscilloCtx;
+
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, w, h);
+
+      // Grid Lines
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      // Center zero line
+      ctx.moveTo(0, h / 2);
+      ctx.lineTo(w, h / 2);
+      // Grid horizontals
+      ctx.moveTo(0, h / 4);
+      ctx.lineTo(w, h / 4);
+      ctx.moveTo(0, (3 * h) / 4);
+      ctx.lineTo(w, (3 * h) / 4);
+      ctx.stroke();
+
+      // Signal Trace
+      ctx.beginPath();
+      const lineColor = state.fsm === 'STATE_ALARM' ? '#ef4444' : state.fsm === 'STATE_WARNING' ? '#f59e0b' : '#22d3ee';
+      ctx.strokeStyle = lineColor;
+      ctx.lineWidth = 2.5 * window.devicePixelRatio;
+      ctx.shadowColor = lineColor;
+      ctx.shadowBlur = 8;
+
+      const step = w / (BUFFER_SIZE - 1);
+      for (let i = 0; i < BUFFER_SIZE; i++) {
+        // Map [-4g, +4g] to [h, 0]
+        const val = timeDomainBuffer[i];
+        const y = (h / 2) - (val / 4.0) * (h / 2.2);
+        const x = i * step;
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+      ctx.shadowBlur = 0; // reset shadow
+    }
+
+    function renderFFTSpectrum() {
+      if (!fftCanvas || !fftCtx) return;
+      const w = fftCanvas.width;
+      const h = fftCanvas.height;
+      const ctx = fftCtx;
+
+      ctx.fillStyle = '#020617';
+      ctx.fillRect(0, 0, w, h);
+
+      // Grid
+      ctx.strokeStyle = '#1e293b';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(0, h * 0.75);
+      ctx.lineTo(w, h * 0.75);
+      ctx.stroke();
+
+      const numBins = 32;
+      const barWidth = (w / numBins) - (3 * window.devicePixelRatio);
+
+      for (let k = 1; k < numBins; k++) {
+        const mag = fftBuffer[k];
+        const barHeight = Math.min(h * 0.9, (mag / 30) * (h * 0.85));
+        const x = k * (w / numBins);
+        const y = h - barHeight - (4 * window.devicePixelRatio);
+
+        // Highlight dominant harmonic
+        const isPeak = Math.abs(k - Math.round((state.currentFreq / 100) * 32)) <= 1;
+        
+        let grad = ctx.createLinearGradient(0, y, 0, h);
+        if (isPeak) {
+          grad.addColorStop(0, '#818cf8');
+          grad.addColorStop(1, '#4f46e5');
+        } else {
+          grad.addColorStop(0, '#38bdf8');
+          grad.addColorStop(1, '#0369a1');
+        }
+
+        ctx.fillStyle = grad;
+        ctx.fillRect(x, y, barWidth, barHeight);
+      }
+    }
+
+    function animateSvgPropeller() {
+      const prop = document.getElementById('svgPropeller');
+      if (prop && state.currentRpm > 10) {
+        propRotation += (state.currentRpm / 60) * 6;
+        prop.setAttribute('transform', `translate(250, 270) rotate(${propRotation % 360})`);
+      }
+    }
+
+    // --- CONTROLS & EMERGENCY PROCEDURES ---
+    function triggerEmergencyStop() {
+      state.fsm = 'STATE_ALARM';
+      state.debounceCount = state.debounceMax;
+      
+      // Update badge
+      document.getElementById('motorStateBadge').innerText = "ARRÊT SÉCURITÉ";
+      document.getElementById('motorStateBadge').className = "text-[11px] font-mono font-bold px-2 py-0.5 rounded bg-red-950 text-red-400 border border-red-700";
+
+      // Log in terminal
+      appendTerminalMessage("[CRITIQUE] ALARME FSM : Coupure d'urgence moteur en < 10 µs ! Buzzer actif.", "text-red-400 font-bold bg-red-950/40 p-1 rounded");
+      updateAudioDrone();
+    }
+
+    function triggerRearm() {
+      state.fsm = 'STATE_NORMAL';
+      state.debounceCount = 0;
+      
+      // Clear fault injection buttons
+      state.faultImbalance = false;
+      state.faultFriction = false;
+      state.faultThermal = false;
+      document.getElementById('badgeImbalance').classList.add('hidden');
+      document.getElementById('badgeFriction').classList.add('hidden');
+      document.getElementById('badgeThermal').classList.add('hidden');
+
+      document.getElementById('motorStateBadge').innerText = "ROTATION ACTIVE";
+      document.getElementById('motorStateBadge').className = "text-[11px] font-mono font-semibold px-2 py-0.5 rounded bg-emerald-950 text-emerald-400 border border-emerald-700/50";
+
+      appendTerminalMessage("[SYSTEM] Machine à états RÉARMÉE (RESET). Moteur relancé en Soft-Start.", "text-emerald-400 font-bold");
+      updateAudioDrone();
+    }
+
+    function updateMotorThrottle(val) {
+      state.motorThrottle = val / 100;
+      const rpm = Math.round(state.motorThrottle * 4750);
+      document.getElementById('targetPwmLabel').innerText = `${val} % (${rpm} RPM)`;
+    }
+
+    function toggleFault(type) {
+      if (type === 'imbalance') {
+        state.faultImbalance = !state.faultImbalance;
+        document.getElementById('badgeImbalance').classList.toggle('hidden', !state.faultImbalance);
+        appendTerminalMessage(state.faultImbalance ? "[INJECTION] Balourd mécanique INJECTÉ (Masse excentrique)." : "[INJECTION] Balourd mécanique RETIRÉ.", "text-indigo-400");
+      } else if (type === 'friction') {
+        state.faultFriction = !state.faultFriction;
+        document.getElementById('badgeFriction').classList.toggle('hidden', !state.faultFriction);
+        appendTerminalMessage(state.faultFriction ? "[INJECTION] Grippage palier INJECTÉ (Hausse courant INA219)." : "[INJECTION] Grippage palier SUPPRIMÉ.", "text-amber-400");
+      } else if (type === 'thermal') {
+        state.faultThermal = !state.faultThermal;
+        document.getElementById('badgeThermal').classList.toggle('hidden', !state.faultThermal);
+        appendTerminalMessage(state.faultThermal ? "[INJECTION] Dérive thermique MLX90614 INJECTÉE (>75°C)." : "[INJECTION] Température revenue à la normale.", "text-rose-400");
+      }
+    }
+
+    function injectSingleSpike() {
+      // Temporary 1-frame spike to test debounce filter
+      timeDomainBuffer[BUFFER_SIZE - 1] = 3.8;
+      state.currentRms += 0.8;
+      state.debounceCount = 1;
+      state.fsm = 'STATE_WARNING';
+      appendTerminalMessage("[TEST] Choc transitoire isolé détecté. Filtre anti-rebond en attente (1/3 frames).", "text-cyan-300");
+      setTimeout(() => {
+        if (state.fsm === 'STATE_WARNING' && !state.faultImbalance) {
+          state.debounceCount = 0;
+          state.fsm = 'STATE_NORMAL';
+        }
+      }, 500);
+    }
+
+    // --- TERMINAL & SERIAL LOGGING ---
+    function appendTerminalMessage(msg, cssClass = "text-slate-300") {
+      const term = document.getElementById('terminalScreen');
+      const line = document.createElement('div');
+      line.className = cssClass;
+      const now = new Date().toTimeString().split(' ')[0];
+      line.innerText = `[${now}] ${msg}`;
+      term.appendChild(line);
+      term.scrollTop = term.scrollHeight;
+    }
+
+    function logTelemetryLine() {
+      const stateStr = state.fsm === 'STATE_NORMAL' ? 'NORMAL' : state.fsm === 'STATE_WARNING' ? 'WARNING' : 'ALARM';
+      const inf = state.fsm === 'STATE_NORMAL' ? 0 : 1;
+      const line = `[ETAT: ${stateStr}] | RMS: ${state.currentRms.toFixed(3)} g | Freq: ${state.currentFreq.toFixed(1)} Hz | Courant: ${Math.round(state.currentMa)} mA | Temp: ${state.currentTemp.toFixed(1)} °C | Inf: ${inf}`;
+      appendTerminalMessage(line, state.fsm === 'STATE_ALARM' ? "text-red-400 font-bold" : "text-slate-400");
+    }
+
+    function clearTerminal() {
+      document.getElementById('terminalScreen').innerHTML = '<div class="text-slate-500">// Terminal réinitialisé.</div>';
+    }
+
+    function executeCommandInput() {
+      const input = document.getElementById('serialInput');
+      const cmd = input.value.trim().toUpperCase();
+      if (!cmd) return;
+      input.value = '';
+      sendSerialCommand(cmd);
+    }
+
+    function sendSerialCommand(cmd) {
+      appendTerminalMessage(`> ${cmd}`, "text-cyan-400 font-bold");
+      if (cmd === 'INJECT_VIB') {
+        toggleFault('imbalance');
+      } else if (cmd === 'INJECT_TEMP') {
+        toggleFault('thermal');
+      } else if (cmd === 'RESET') {
+        triggerRearm();
+      } else if (cmd === 'STATUS') {
+        appendTerminalMessage(`[DIAGNOSTIC] FSM=${state.fsm} | RPM=${Math.round(state.currentRpm)} | RMS=${state.currentRms.toFixed(2)}g | INA219=${Math.round(state.currentMa)}mA | Temp=${state.currentTemp.toFixed(1)}C | MPU6050=OK`, "text-amber-300");
+      } else if (cmd === 'HELP') {
+        appendTerminalMessage("[COMMANDES] INJECT_VIB, INJECT_TEMP, RESET, STATUS, HELP", "text-indigo-300");
+      } else {
+        appendTerminalMessage(`[ERREUR] Commande inconnue: '${cmd}'. Tapez HELP.`, "text-rose-400");
+      }
+    }
+
+    // --- TAB SWITCHING ---
+    function switchTab(tabId) {
+      document.querySelectorAll('.tab-content').forEach(el => el.classList.add('hidden'));
+      document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.classList.remove('border-cyan-400', 'text-cyan-400');
+        btn.classList.add('border-transparent', 'text-slate-400');
+      });
+
+      document.getElementById(tabId).classList.remove('hidden');
+      const activeBtn = document.getElementById(`btn-${tabId}`);
+      if (activeBtn) {
+        activeBtn.classList.remove('border-transparent', 'text-slate-400');
+        activeBtn.classList.add('border-cyan-400', 'text-cyan-400');
+      }
+
+      if (tabId === 'tab-live') {
+        setTimeout(resizeCanvases, 50);
+      }
+    }
+
+    // --- SENSOR MODAL ---
+    const sensorDetails = {
+      mpu: {
+        title: "MPU6050 - Capteur Accéléromètre 3 Axes (Vibrations FFT)",
+        body: "• Protocole : Bus I2C partagé (Adresse : 0x68)\n• Fréquence d'échantillonnage : 200 Hz sur l'axe Z\n• Traitement DSP : Centrage Zero-Mean (suppression de 1g gravité), calcul RMS continu, fenêtre de Hamming et FFT Radix-2 64 points.\n• Rôle IA : Détection de l'énergie vibratoire et du décalage spectral de balourd mécanique."
+      },
+      tcrt: {
+        title: "TCRT5000 - Tachymètre Optique Infrarouge",
+        body: "• Protocole : Interruption matérielle (GPIO 34) sur front montant\n• Cible : Pastille réfléchissante collée sur l'axe du rotor\n• Calcul : RPM = (Nombre d'impulsions / Delta_T) * 60\n• Rôle IA : Détection du glissement (slip), perte de vitesse et frottements d'arbre."
+      },
+      mlx: {
+        title: "MLX90614 - Thermomètre Optique Infrarouge Sans Contact",
+        body: "• Protocole : Bus I2C partagé (Adresse : 0x5A)\n• Champ de vision (FOV) : 35° orienté sur le corps du moteur\n• Précision : ± 0.5 °C (Résolution 0.02 °C)\n• Rôle IA : Détection instantanée de l'échauffement des roulements sans inertie de capteur thermique conventionnel."
+      },
+      ina: {
+        title: "INA219 - Moniteur de Puissance & Courant Haute Précision",
+        body: "• Protocole : Bus I2C partagé (Adresse : 0x40)\n• Mesure : Shunt 0.1 Ω monté en série sur le rail d'alimentation 12V de l'ESC\n• Plage : 0 à 3.2 A (Précision 0.8 mA)\n• Rôle IA : Diagnostic de forçage électromécanique avant même l'apparition des vibrations critiques."
+      }
+    };
+
+    function showSensorModal(type) {
+      const modal = document.getElementById('sensorModal');
+      const data = sensorDetails[type];
+      if (!data) return;
+      document.getElementById('modalTitle').innerText = data.title;
+      document.getElementById('modalBody').innerText = data.body;
+      modal.classList.remove('hidden');
+    }
+
+    function closeSensorModal() {
+      document.getElementById('sensorModal').classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
